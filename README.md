@@ -1,7 +1,6 @@
 # CharaName Browser Tool
 
 Static tool for creating Retro Rewind custom character name files.
-```
 
 The tool generates downloads directly in the browser:
 
