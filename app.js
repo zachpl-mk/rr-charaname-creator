@@ -5,7 +5,7 @@ const characters = [
   "Mii S A Male", "Mii S A Female", "Mii S B Male", "Mii S B Female", "Mii S C Male", "Mii S C Female",
   "Mii M A Male", "Mii M A Female", "Mii M B Male", "Mii M B Female", "Mii M C Male", "Mii M C Female",
   "Mii L A Male", "Mii L A Female", "Mii L B Male", "Mii L B Female", "Mii L C Male", "Mii L C Female",
-  "Mii M", "Mii S", "Mii L", "Peach Biker", "Daisy Biker", "Rosalina Biker"
+  "Mii M", "Mii S", "Mii L"
 ];
 
 const rows = document.querySelector("#rows");
