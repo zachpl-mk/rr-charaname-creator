@@ -11,6 +11,8 @@ The tool generates downloads directly in the browser:
 
 Put the two `.szs` files in patches.
 
+You can also import any of those file types back into the page to restore saved progress.
+
 ## BMG IDs
 
 - Name IDs: `(characterId << 16) | 0x6a00 | customId`

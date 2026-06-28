@@ -47,6 +47,13 @@ p {
   box-shadow: 0 8px 24px rgba(25, 32, 42, 0.06);
 }
 
+.import-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1.3fr 110px 1.2fr 1.2fr 90px;
@@ -92,6 +99,23 @@ button {
 }
 
 button:hover {
+  background: #27689f;
+}
+
+.file-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid #2e6da4;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: #2f78b7;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.file-button:hover {
   background: #27689f;
 }
 

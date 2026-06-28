@@ -12,6 +12,8 @@ const rows = document.querySelector("#rows");
 const template = document.querySelector("#rowTemplate");
 const preview = document.querySelector("#preview");
 const statusText = document.querySelector("#status");
+const importStatus = document.querySelector("#importStatus");
+const importFiles = document.querySelector("#importFiles");
 const downloads = document.querySelector("#downloads");
 const generatedUrls = [];
 
@@ -25,6 +27,10 @@ function align(value, boundary) {
 
 function cleanText(value, limit) {
   return String(value || "").replace(/[\r\n\t]/g, " ").trim().slice(0, limit);
+}
+
+function stripNulls(text) {
+  return String(text || "").replace(/\0+$/g, "");
 }
 
 function makeBmgId(character, table, base) {
@@ -54,6 +60,21 @@ function buildTxt(entries) {
   return ["#BMG", ...entries.map(entry => `${padHex(entry.id, 6)}=\t${entry.text}`)].join("\n") + "\n";
 }
 
+function clearRows() {
+  rows.textContent = "";
+}
+
+function setRows(data) {
+  clearRows();
+  const sorted = [...data].sort((a, b) => {
+    if (a.character !== b.character) return a.character - b.character;
+    return a.table - b.table;
+  });
+  if (!sorted.length) sorted.push({ character: 0, table: 1, name: "", author: "" });
+  for (const row of sorted) addRow(row);
+  updatePreview();
+}
+
 function addRow(defaults = {}) {
   const node = template.content.firstElementChild.cloneNode(true);
   const select = node.querySelector(".character");
@@ -80,6 +101,38 @@ function addRow(defaults = {}) {
 
 function updatePreview() {
   preview.textContent = buildTxt(buildEntries()).trimEnd();
+}
+
+class Reader {
+  constructor(bytes) {
+    this.bytes = bytes;
+    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    this.offset = 0;
+  }
+
+  u8() {
+    return this.bytes[this.offset++];
+  }
+
+  u16() {
+    const value = this.view.getUint16(this.offset, false);
+    this.offset += 2;
+    return value;
+  }
+
+  u32() {
+    const value = this.view.getUint32(this.offset, false);
+    this.offset += 4;
+    return value;
+  }
+
+  skip(count) {
+    this.offset += count;
+  }
+
+  slice(offset, length) {
+    return this.bytes.slice(offset, offset + length);
+  }
 }
 
 class Writer {
@@ -124,6 +177,16 @@ function utf16beWithTerminator(text) {
   for (const char of codePoints) out.u16(char.codePointAt(0));
   out.u16(0);
   return out.bytes;
+}
+
+function decodeUtf16Be(bytes) {
+  const values = [];
+  for (let i = 0; i < bytes.length; i += 2) {
+    const code = (bytes[i] << 8) | bytes[i + 1];
+    if (code === 0) break;
+    values.push(code);
+  }
+  return String.fromCharCode(...values);
 }
 
 function buildBmg(entries) {
@@ -229,6 +292,185 @@ function buildU8Archive(bmg) {
   return out.bytes;
 }
 
+function parseTxt(text) {
+  const rowsByKey = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^([0-9a-fA-F]{6})=\t?(.*)$/);
+    if (!match) continue;
+    const id = Number.parseInt(match[1], 16);
+    const value = match[2].trim();
+    const character = id >>> 16;
+    const table = id & 0xff;
+    const kind = (id & 0xff00) === 0x6a00 ? "name" : (id & 0xff00) === 0x7a00 ? "author" : null;
+    if (!kind) continue;
+    const key = `${character}:${table}`;
+    const row = rowsByKey.get(key) ?? { character, table, name: "", author: "" };
+    row[kind] = value;
+    rowsByKey.set(key, row);
+  }
+  return [...rowsByKey.values()];
+}
+
+function parseBmg(bytes) {
+  if (String.fromCharCode(...bytes.slice(0, 8)) !== "MESGbmg1") return [];
+  const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let infOffset = -1;
+  let datOffset = -1;
+  let midOffset = -1;
+  let datSize = 0;
+
+  for (let offset = 32; offset + 8 <= bytes.length;) {
+    const tag = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+    const size = dataView.getUint32(offset + 4, false);
+    if (tag === "INF1") infOffset = offset;
+    if (tag === "DAT1") {
+      datOffset = offset;
+      datSize = size;
+    }
+    if (tag === "MID1") midOffset = offset;
+    offset += size;
+  }
+
+  if (infOffset < 0 || datOffset < 0 || midOffset < 0) return [];
+  const count = dataView.getUint16(infOffset + 8, false);
+  if (!count) return [];
+
+  const offsets = [];
+  let infCursor = infOffset + 16;
+  for (let i = 0; i < count; i++) {
+    offsets.push(dataView.getUint32(infCursor, false));
+    infCursor += 8;
+  }
+
+  const ids = [];
+  let midCursor = midOffset + 16;
+  for (let i = 0; i < count; i++) {
+    ids.push(dataView.getUint32(midCursor, false));
+    midCursor += 4;
+  }
+
+  const entriesByKey = new Map();
+  for (let i = 0; i < count; i++) {
+    const start = datOffset + 8 + offsets[i];
+    const end = i + 1 < count ? datOffset + 8 + offsets[i + 1] : datOffset + datSize;
+    const textBytes = bytes.slice(start, end);
+    const decoded = stripNulls(decodeUtf16Be(textBytes.slice(2)));
+    const id = ids[i];
+    const character = id >>> 16;
+    const table = id & 0xff;
+    const kind = (id & 0xff00) === 0x6a00 ? "name" : (id & 0xff00) === 0x7a00 ? "author" : null;
+    if (!kind) continue;
+    const key = `${character}:${table}`;
+    const row = entriesByKey.get(key) ?? { character, table, name: "", author: "" };
+    row[kind] = decoded;
+    entriesByKey.set(key, row);
+  }
+  return [...entriesByKey.values()];
+}
+
+function decompressYaz0(bytes) {
+  if (String.fromCharCode(...bytes.slice(0, 4)) !== "Yaz0") return bytes;
+  const outSize = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, false);
+  const out = new Uint8Array(outSize);
+  let src = 16;
+  let dst = 0;
+  let code = 0;
+  let bits = 0;
+  while (dst < outSize && src < bytes.length) {
+    if (bits === 0) {
+      code = bytes[src++];
+      bits = 8;
+    }
+    if (code & 0x80) {
+      out[dst++] = bytes[src++];
+    } else {
+      const byte1 = bytes[src++];
+      const byte2 = bytes[src++];
+      let count = byte1 >> 4;
+      let offset = ((byte1 & 0x0f) << 8) | byte2;
+      if (count === 0) {
+        count = bytes[src++] + 0x12;
+      } else {
+        count += 2;
+      }
+      offset += 1;
+      for (let i = 0; i < count && dst < outSize; i++) {
+        out[dst] = out[dst - offset];
+        dst++;
+      }
+    }
+    code <<= 1;
+    bits--;
+  }
+  return out;
+}
+
+function parseU8(bytes) {
+  const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dataView.getUint32(0, false) !== 0x55aa382d) return [];
+  const nodesOffset = dataView.getUint32(4, false);
+  const headerSize = dataView.getUint32(8, false);
+  const nodeCount = dataView.getUint32(nodesOffset + 8, false);
+  const stringTable = bytes.slice(nodesOffset + nodeCount * 12, headerSize);
+  const names = [];
+  let current = "";
+  for (const byte of stringTable) {
+    if (byte === 0) {
+      names.push(current);
+      current = "";
+    } else {
+      current += String.fromCharCode(byte);
+    }
+  }
+  const fileNode = nodeCount - 1;
+  const fileOffset = dataView.getUint32(nodesOffset + fileNode * 12 + 4, false);
+  const fileSize = dataView.getUint32(nodesOffset + fileNode * 12 + 8, false);
+  if (names.length < 3 || fileOffset + fileSize > bytes.length) return [];
+  return parseBmg(bytes.slice(fileOffset, fileOffset + fileSize));
+}
+
+function parseSzs(bytes) {
+  return parseU8(decompressYaz0(bytes));
+}
+
+function mergeImportedRows(target, source) {
+  for (const row of source) {
+    const key = `${row.character}:${row.table}`;
+    const existing = target.get(key) ?? { character: row.character, table: row.table, name: "", author: "" };
+    if (row.name) existing.name = row.name;
+    if (row.author) existing.author = row.author;
+    target.set(key, existing);
+  }
+}
+
+async function importFilesFromInput(fileList) {
+  const merged = new Map();
+  let importedFiles = 0;
+  for (const file of fileList) {
+    const lower = file.name.toLowerCase();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let rowsFromFile = [];
+    if (lower.endsWith(".txt")) {
+      rowsFromFile = parseTxt(await file.text());
+    } else if (lower.endsWith(".bmg")) {
+      rowsFromFile = parseBmg(bytes);
+    } else if (lower.endsWith(".szs")) {
+      rowsFromFile = parseSzs(bytes);
+    }
+    if (rowsFromFile.length) {
+      mergeImportedRows(merged, rowsFromFile);
+      importedFiles++;
+    }
+  }
+  if (!merged.size) {
+    importStatus.textContent = "No supported progress files were found.";
+    return;
+  }
+  setRows([...merged.values()]);
+  importStatus.textContent = `Imported ${importedFiles} file${importedFiles === 1 ? "" : "s"}.`;
+  statusText.textContent = "Imported files.";
+}
+
 function yaz0Literal(data) {
   const groupCount = Math.ceil(data.length / 8);
   const out = new Writer(16 + groupCount + data.length);
@@ -283,4 +525,10 @@ function generate() {
 
 document.querySelector("#addRow").addEventListener("click", () => addRow());
 document.querySelector("#generate").addEventListener("click", generate);
+importFiles.addEventListener("change", async () => {
+  if (!importFiles.files?.length) return;
+  importStatus.textContent = "Importing...";
+  await importFilesFromInput(importFiles.files);
+  importFiles.value = "";
+});
 addRow({ character: 0, table: 1 });
