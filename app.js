@@ -14,8 +14,45 @@ const preview = document.querySelector("#preview");
 const statusText = document.querySelector("#status");
 const importStatus = document.querySelector("#importStatus");
 const importFiles = document.querySelector("#importFiles");
+const themeToggle = document.querySelector("#themeToggle");
 const downloads = document.querySelector("#downloads");
 const generatedUrls = [];
+const themeStorageKey = "charaNameTheme";
+
+function systemPrefersDark() {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+}
+
+function getThemePreference() {
+  return localStorage.getItem(themeStorageKey) || "system";
+}
+
+function resolveTheme() {
+  const preference = getThemePreference();
+  return preference === "system" ? (systemPrefersDark() ? "dark" : "light") : preference;
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const preference = getThemePreference();
+  const isDark = theme === "dark";
+  themeToggle.textContent = isDark ? "Light mode" : "Dark mode";
+  themeToggle.setAttribute("aria-pressed", String(isDark));
+  themeToggle.title = preference === "system"
+    ? `System theme is ${isDark ? "dark" : "light"}`
+    : `Using saved ${preference} mode`;
+}
+
+function syncTheme() {
+  applyTheme(resolveTheme());
+}
+
+function cycleTheme() {
+  const current = getThemePreference();
+  const next = current === "system" ? "dark" : current === "dark" ? "light" : "system";
+  localStorage.setItem(themeStorageKey, next);
+  syncTheme();
+}
 
 function padHex(value, length) {
   return value.toString(16).padStart(length, "0");
@@ -525,10 +562,15 @@ function generate() {
 
 document.querySelector("#addRow").addEventListener("click", () => addRow());
 document.querySelector("#generate").addEventListener("click", generate);
+themeToggle.addEventListener("click", cycleTheme);
 importFiles.addEventListener("change", async () => {
   if (!importFiles.files?.length) return;
   importStatus.textContent = "Importing...";
   await importFilesFromInput(importFiles.files);
   importFiles.value = "";
 });
+window.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", () => {
+  if (getThemePreference() === "system") syncTheme();
+});
+syncTheme();
 addRow({ character: 0, table: 1 });
