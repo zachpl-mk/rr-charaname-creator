@@ -51,10 +51,7 @@
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top right, rgba(47, 120, 183, 0.14), transparent 34%),
-    radial-gradient(circle at bottom left, rgba(47, 120, 183, 0.08), transparent 28%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
 }
 

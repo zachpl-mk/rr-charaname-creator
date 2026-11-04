@@ -80,7 +80,7 @@ function rowData() {
     table: Number(row.querySelector(".table").value),
     name: cleanText(row.querySelector(".name").value, 80),
     author: cleanText(row.querySelector(".author").value, 80)
-  })).filter(row => row.name && row.table >= 1 && row.table <= 50);
+  })).filter(row => row.name && row.table >= 1 && row.table <= 100);
 }
 
 function buildEntries() {

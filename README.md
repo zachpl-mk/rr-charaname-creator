@@ -17,7 +17,7 @@ You can also import any of those file types back into the page to restore saved 
 
 - Name IDs: `(characterId << 16) | 0x6a00 | customId`
 - Author IDs: `(characterId << 16) | 0x7a00 | customId`
-- Custom IDs: `1` through `50`
+- Custom IDs: `1` through `100`
 
 The generated `.szs` files are Yaz0-wrapped U8 archives containing:
 
